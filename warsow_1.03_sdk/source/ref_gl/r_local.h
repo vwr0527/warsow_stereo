@@ -413,6 +413,8 @@ extern cvar_t *vr_hud_height;
 extern cvar_t *vr_hud_y;
 extern cvar_t *vr_hud_x;
 extern cvar_t *vr_hud_crosshair_dist;
+extern cvar_t *vr_headtracking;
+extern cvar_t *vr_driftcorrection;
 
 extern cvar_t *gl_finish;
 extern cvar_t *gl_cull;
