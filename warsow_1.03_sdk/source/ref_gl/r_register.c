@@ -135,9 +135,11 @@ cvar_t *vr_hud_width;
 cvar_t *vr_hud_height;
 cvar_t *vr_hud_y;
 cvar_t *vr_hud_x;
-cvar_t *vr_hud_crosshair_dist;
 cvar_t *vr_headtracking;
 cvar_t *vr_driftcorrection;
+cvar_t *vr_yawbias;
+cvar_t *vr_hud_track_x;
+cvar_t *vr_hud_track_y;
 
 cvar_t *gl_extensions;
 cvar_t *gl_drawbuffer;
@@ -830,14 +832,16 @@ void R_Register( void )
 	//McSchwartz
 	vr_enable = Cvar_Get( "vr_enable", "0", CVAR_ARCHIVE );
 	vr_eyedist = Cvar_Get( "vr_eyedist", "0.5", CVAR_ARCHIVE );
-	vr_separation = Cvar_Get( "vr_separation", "3", CVAR_ARCHIVE );
-	vr_hud_width = Cvar_Get( "vr_hud_width", "0.7", CVAR_ARCHIVE );
+	vr_separation = Cvar_Get( "vr_separation", "1.5", CVAR_ARCHIVE );
+	vr_hud_width = Cvar_Get( "vr_hud_width", "1", CVAR_ARCHIVE );
 	vr_hud_height = Cvar_Get( "vr_hud_height", "0.5", CVAR_ARCHIVE );
 	vr_hud_y = Cvar_Get( "vr_hud_y", "0", CVAR_ARCHIVE );
-	vr_hud_x = Cvar_Get( "vr_hud_x", "140", CVAR_ARCHIVE );
-	vr_hud_crosshair_dist = Cvar_Get( "vr_hud_crosshair_dist", "100", CVAR_ARCHIVE );
-	vr_headtracking = Cvar_Get( "vr_headtracking", "1", CVAR_ARCHIVE );
+	vr_hud_x = Cvar_Get( "vr_hud_x", "100", CVAR_ARCHIVE );
+	vr_headtracking = Cvar_Get( "vr_headtracking", "0", CVAR_ARCHIVE );
 	vr_driftcorrection = Cvar_Get( "vr_driftcorrection", "0.01", CVAR_ARCHIVE );
+	vr_yawbias = Cvar_Get("vr_yawbias", "0.05", CVAR_ARCHIVE);
+	vr_hud_track_x = Cvar_Get("vr_hud_track_x", "9", CVAR_ARCHIVE);
+	vr_hud_track_y = Cvar_Get("vr_hud_track_y", "8", CVAR_ARCHIVE);
 
 	gl_finish = Cvar_Get( "gl_finish", "0", CVAR_ARCHIVE );
 	gl_cull = Cvar_Get( "gl_cull", "1", 0 );

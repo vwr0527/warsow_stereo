@@ -1042,6 +1042,15 @@ static void R_RenderPicMBuffer( void )
 	mat4x4_t translation;
 	qboolean translated;
 
+	//McSchwartz
+	vec3_t hmd_pitchyawroll;
+	//vec3_t hmd_axis[3];
+	mat4x4_t scale;
+	mat4x4_t rotate;
+	mat4x4_t final;
+	mat4x4_t temp;
+	mat4x4_t temp2;
+
 	if( !pic_mbuffer_shader ) {
 		return;
 	}
@@ -1059,7 +1068,109 @@ static void R_RenderPicMBuffer( void )
 		qglLoadMatrixf( translation );
 	}
 
-	R_RenderMeshBuffer( &pic_mbuffer, NULL );
+	//McSchwartz
+	//Sorry lots of copy and paste here. just want to get this done quick.
+	if (vr_enable->integer && glState.in2DMode)
+	{
+		if (OVRDetected && vr_headtracking->integer)
+		{
+			OVR_Peek(&hmd_pitchyawroll[YAW], &hmd_pitchyawroll[PITCH], &hmd_pitchyawroll[ROLL]);
+			hmd_pitchyawroll[YAW] += yaw_drift_correction_angle;
+			hmd_pitchyawroll[0] = -RAD2DEG(hmd_pitchyawroll[0]);
+			hmd_pitchyawroll[1] = RAD2DEG(hmd_pitchyawroll[1]);
+			hmd_pitchyawroll[2] = -RAD2DEG(hmd_pitchyawroll[2]);
+			//AnglesToAxis(hmd_pitchyawroll, hmd_axis);
+
+			/*qglViewport(vr_hud_x->integer,
+				(glState.height/2) + vr_hud_y->integer - (((glState.height) * vr_hud_height->value)/2),
+				(glState.width/2) * vr_hud_width->value,
+				(glState.height) * vr_hud_height->value);
+			*/
+			qglViewport(0,0,640,800);
+			qglScissor(0,0,640,800);
+
+			Matrix4_Identity( translation );
+			Matrix4_Identity( rotate );
+			Matrix4_Identity( scale );
+			Matrix4_Identity( final );
+			Matrix4_Identity( temp );
+
+			Matrix4_Translate2D( translation, pic_x_offset - 640, pic_y_offset - 400);
+			Matrix4_Rotate( rotate, -hmd_pitchyawroll[ROLL], 0,0, 1 );
+			Matrix4_Multiply( rotate, translation, temp );
+			Matrix4_Scale( scale, vr_hud_width->value, vr_hud_height->value, 1 );
+			Matrix4_Multiply( scale, temp, temp2 );
+			Matrix4_Identity( translation );
+			Matrix4_Translate2D( translation, vr_hud_x->value + 640 + hmd_pitchyawroll[YAW] * vr_hud_track_x->value,  vr_hud_y->value + 400 - hmd_pitchyawroll[PITCH] * vr_hud_track_y->value / 2);
+			Matrix4_Multiply( translation, temp2, final );
+
+			qglMatrixMode ( GL_MODELVIEW );
+			qglLoadMatrixf( final );
+
+			R_RenderMeshBufferWithClearOption( qfalse, &pic_mbuffer, NULL );
+
+			/*qglViewport((glState.width/2) - vr_hud_x->integer + ((glState.width/2) - ((glState.width/2) * vr_hud_width->value)),
+				(glState.height/2) + vr_hud_y->integer - ((glState.height) * vr_hud_height->value)/2,
+				(glState.width/2) * vr_hud_width->value,
+				(glState.height) * vr_hud_height->value);
+			*/
+			/*
+			Matrix4_Identity( translation );
+			Matrix4_Translate2D( translation, pic_x_offset + (hmd_pitchyawroll[YAW] * vr_hud_track_x->value), pic_y_offset - (hmd_pitchyawroll[PITCH] * vr_hud_track_y->value));
+			qglMatrixMode ( GL_MODELVIEW );
+			qglLoadMatrixf( translation );
+			*/
+			
+			qglViewport(640,0,640,800);
+			qglScissor(640,0,640,800);
+
+			Matrix4_Identity( translation );
+			Matrix4_Identity( rotate );
+			Matrix4_Identity( scale );
+			Matrix4_Identity( final );
+			Matrix4_Identity( temp );
+
+			Matrix4_Translate2D( translation, pic_x_offset - 640, pic_y_offset - 400);
+			Matrix4_Rotate( rotate, -hmd_pitchyawroll[ROLL], 0,0, 1 );
+			Matrix4_Multiply( rotate, translation, temp );
+			Matrix4_Scale( scale, vr_hud_width->value, vr_hud_height->value, 1 );
+			Matrix4_Multiply( scale, temp, temp2 );
+			Matrix4_Identity( translation );
+			Matrix4_Translate2D( translation, -vr_hud_x->value + 640 + hmd_pitchyawroll[YAW] * vr_hud_track_x->value,  vr_hud_y->value + 400 - hmd_pitchyawroll[PITCH] * vr_hud_track_y->value / 2);
+			Matrix4_Multiply( translation, temp2, final );
+
+			qglMatrixMode ( GL_MODELVIEW );
+			qglLoadMatrixf( final );
+
+			R_RenderMeshBufferWithClearOption( qtrue, &pic_mbuffer, NULL );
+			qglViewport(0,0,1280,800);
+			qglScissor(0,0,1280,800);
+		}
+		else
+		{
+			qglViewport(vr_hud_x->integer,
+				(glState.height/2) + vr_hud_y->integer - (((glState.height) * vr_hud_height->value)/2),
+				(glState.width/2) * vr_hud_width->value,
+				(glState.height) * vr_hud_height->value);
+			
+			qglScissor(0,0,640,800);
+			R_RenderMeshBufferWithClearOption( qfalse, &pic_mbuffer, NULL );
+
+			qglViewport((glState.width/2) - vr_hud_x->integer + ((glState.width/2) - ((glState.width/2) * vr_hud_width->value)),
+				(glState.height/2) + vr_hud_y->integer - (((glState.height) * vr_hud_height->value)/2),
+				(glState.width/2) * vr_hud_width->value,
+				(glState.height) * vr_hud_height->value);
+
+			qglScissor(640,0,640,800);
+			R_RenderMeshBuffer( &pic_mbuffer, NULL );
+			qglViewport(0,0,1280,800);
+			qglScissor(0,0,1280,800);
+		}
+	}
+	else
+	{
+		R_RenderMeshBuffer( &pic_mbuffer, NULL );
+	}
 
 	// reset matrix
 	if( translated ) {
@@ -1081,33 +1192,6 @@ void R_Set2DMode( qboolean enable )
 
 		// set 2D virtual screen size
 		GL_Scissor( 0, 0, glState.width, glState.height );
-		
-		//McSchwartz
-		/* change reverted for now
-		if (vr_enable->integer)
-		{
-			if (vr_renderViewport == 0)
-			{
-				GL_Viewport(
-				(glState.width / 2) - vr_hud_x->value - (glState.width * vr_hud_width->value / 2),
-				vr_hud_y->value + (glState.height / 2) - (glState.height * vr_hud_height->value / 4),
-				glState.width * vr_hud_width->value / 2,
-				glState.height * vr_hud_height->value / 2 );
-			}
-			else
-			{
-				GL_Viewport(
-				(glState.width / 2) + vr_hud_x->value,
-				vr_hud_y->value + (glState.height / 2) - (glState.height * vr_hud_height->value / 4),
-				glState.width * vr_hud_width->value / 2,
-				glState.height * vr_hud_height->value / 2 );
-			}
-		}
-		else
-		{
-			GL_Viewport( 0, 0, glState.width, glState.height );
-		}
-		*/
 		GL_Viewport( 0, 0, glState.width, glState.height );
 
 		qglMatrixMode( GL_PROJECTION );
@@ -1137,43 +1221,6 @@ void R_Set2DMode( qboolean enable )
 	}
 }
 
-/*
-* R_Setup2nd2DView
-* A McSchwartz function
-*/
-void R_Setup2nd2DView ( void )
-{
-	glState.in2DMode = qfalse;
-	vr_renderViewport = 0;
-	R_Set2DMode( qtrue );
-}
-/*
-* R_GetVREnabled
-* Another McSchwartz function
-*/
-qboolean R_GetVREnabled ( void )
-{
-	if (vr_enable->integer)
-		return qtrue;
-	else
-		return qfalse;
-}
-/*
-* R_GetVREnabled
-* A third McSchwartz function
-*/
-float R_GetCrosshairDist ( void )
-{
-	return vr_hud_crosshair_dist->value;
-}
-/*
-* R_GetVRRenderViewportNum
-* A fourth McSchwartz function
-*/
-int R_GetVRRenderViewportNum ( void )
-{
-	return vr_renderViewport;
-}
 /*
 * R_DrawStretchBegin
 */
@@ -1220,6 +1267,7 @@ do something here
 void R_DrawRotatedStretchPic( int x, int y, int w, int h, float s1, float t1, float s2, float t2, float angle, const vec4_t color, const shader_t *shader )
 {
 	int bcolor;
+
 	//McSchwartz variables
 	float width = (float)ri.viewport[2];
 	float halfheight = (float)ri.viewport[3]/2.0;
@@ -1227,9 +1275,6 @@ void R_DrawRotatedStretchPic( int x, int y, int w, int h, float s1, float t1, fl
 	float hud_height = vr_hud_height->value;
 	float hud_x = vr_hud_x->value;
 	float hud_y = vr_hud_y->value;
-	//char str[100];
-	//sprintf(str, "%i", pic_mesh.numVerts);
-	//Con_Print(str);
 
 	if( !shader ) {
 		return;
@@ -1244,56 +1289,8 @@ void R_DrawRotatedStretchPic( int x, int y, int w, int h, float s1, float t1, fl
 	}
 
 	//McSchwartz
-	//if vr_enable is no, then do what we normally do 
-	if ((vr_enable->integer) == 0)
+	if (qfalse)//vr_enable->integer)
 	{
-		R_DrawStretchBegin( 4, 6, shader, 0, 0 );
-
-		// lower-left
-		Vector2Set( pic_xyz[0], x, y );
-		Vector2Set( pic_st[0], s1, t1 );
-		Vector4Set( pic_colors[0], R_FloatToByte( color[0] ), R_FloatToByte( color[1] ),
-			R_FloatToByte( color[2] ), R_FloatToByte( color[3] ) );
-		bcolor = *(int *)pic_colors[0];
-
-		// lower-right
-		Vector2Set( pic_xyz[1], x+w, y );
-		Vector2Set( pic_st[1], s2, t1 );
-		*(int *)pic_colors[1] = bcolor;
-
-		// upper-right
-		Vector2Set( pic_xyz[2], x+w, y+h );
-		Vector2Set( pic_st[2], s2, t2 );
-		*(int *)pic_colors[2] = bcolor;
-
-		// upper-left
-		Vector2Set( pic_xyz[3], x, y+h );
-		Vector2Set( pic_st[3], s1, t2 );
-		*(int *)pic_colors[3] = bcolor;
-
-		// rotated image
-		angle = anglemod( angle );
-		if( angle ) {
-			int j;
-			float sint, cost;
-
-			angle = angle / 360.0f;
-			sint = R_FastSin( angle );
-			cost = R_FastSin( angle + 0.25 );
-
-			for( j = 0; j < 4; j++ )
-			{
-				t1 = pic_st[j][0];
-				t2 = pic_st[j][1];
-				pic_st[j][0] = cost * (t1 - 0.5f) - sint * (t2 - 0.5f) + 0.5f;
-				pic_st[j][1] = cost * (t2 - 0.5f) + sint * (t1 - 0.5f) + 0.5f;
-			}
-		}
-
-		R_DrawStretchEnd( &pic_mesh, NULL, MF_TRIFAN | MF_NOCULL );
-	}
-	else
-	{	//DRAW THE VR STUFF
 		//copy and paste... sorry.
 		//draw left, and then draw right!
 		//--------------------LEFT---------------------------
@@ -1385,105 +1382,57 @@ void R_DrawRotatedStretchPic( int x, int y, int w, int h, float s1, float t1, fl
 				pic_st[j][1] = cost * (t2 - 0.5f) + sint * (t1 - 0.5f) + 0.5f;
 			}
 		}
+		R_DrawStretchEnd( &pic_mesh, NULL, MF_TRIFAN | MF_NOCULL );
+	}
+	else
+	{
+		R_DrawStretchBegin( 4, 6, shader, 0, 0 );
+
+		// lower-left
+		Vector2Set( pic_xyz[0], x, y );
+		Vector2Set( pic_st[0], s1, t1 );
+		Vector4Set( pic_colors[0], R_FloatToByte( color[0] ), R_FloatToByte( color[1] ),
+			R_FloatToByte( color[2] ), R_FloatToByte( color[3] ) );
+		bcolor = *(int *)pic_colors[0];
+
+		// lower-right
+		Vector2Set( pic_xyz[1], x+w, y );
+		Vector2Set( pic_st[1], s2, t1 );
+		*(int *)pic_colors[1] = bcolor;
+
+		// upper-right
+		Vector2Set( pic_xyz[2], x+w, y+h );
+		Vector2Set( pic_st[2], s2, t2 );
+		*(int *)pic_colors[2] = bcolor;
+
+		// upper-left
+		Vector2Set( pic_xyz[3], x, y+h );
+		Vector2Set( pic_st[3], s1, t2 );
+		*(int *)pic_colors[3] = bcolor;
+
+		// rotated image
+		angle = anglemod( angle );
+		if( angle ) {
+			int j;
+			float sint, cost;
+
+			angle = angle / 360.0f;
+			sint = R_FastSin( angle );
+			cost = R_FastSin( angle + 0.25 );
+
+			for( j = 0; j < 4; j++ )
+			{
+				t1 = pic_st[j][0];
+				t2 = pic_st[j][1];
+				pic_st[j][0] = cost * (t1 - 0.5f) - sint * (t2 - 0.5f) + 0.5f;
+				pic_st[j][1] = cost * (t2 - 0.5f) + sint * (t1 - 0.5f) + 0.5f;
+			}
+		}
 
 		R_DrawStretchEnd( &pic_mesh, NULL, MF_TRIFAN | MF_NOCULL );
 	}
 }
-/*
-	{	//DRAW THE VR STUFF
-		//copy and paste... sorry.
-		//draw left, and then draw right!
-		//--------------------LEFT---------------------------
-		R_DrawStretchBegin( 4, 6, shader, 0, 0 );
 
-		// lower-left
-		Vector2Set( pic_xyz[0], ((x / 2) * hud_width) + hud_x, (y * hud_height) + ((1-hud_height)*halfheight) + hud_y );
-		Vector2Set( pic_st[0], s1, t1 );
-		Vector4Set( pic_colors[0], R_FloatToByte( color[0] ), R_FloatToByte( color[1] ),
-			R_FloatToByte( color[2] ), R_FloatToByte( color[3] ) );
-		bcolor = *(int *)pic_colors[0];
-
-		// lower-right
-		Vector2Set( pic_xyz[1], (((x+w) / 2) * hud_width) + hud_x, (y * hud_height) + ((1-hud_height)*halfheight) + hud_y );
-		Vector2Set( pic_st[1], s2, t1 );
-		*(int *)pic_colors[1] = bcolor;
-
-		// upper-right
-		Vector2Set( pic_xyz[2], (((x+w) / 2) * hud_width) + hud_x, ((y+h) * hud_height) + ((1-hud_height)*halfheight) + hud_y );
-		Vector2Set( pic_st[2], s2, t2 );
-		*(int *)pic_colors[2] = bcolor;
-
-		// upper-left
-		Vector2Set( pic_xyz[3], ((x / 2) * hud_width) + hud_x, ((y+h) * hud_height) + ((1-hud_height)*halfheight) + hud_y );
-		Vector2Set( pic_st[3], s1, t2 );
-		*(int *)pic_colors[3] = bcolor;
-
-		// rotated image
-		angle = anglemod( angle );
-		if( angle ) {
-			int j;
-			float sint, cost;
-
-			angle = angle / 360.0f;
-			sint = R_FastSin( angle );
-			cost = R_FastSin( angle + 0.25 );
-
-			for( j = 0; j < 4; j++ )
-			{
-				t1 = pic_st[j][0];
-				t2 = pic_st[j][1];
-				pic_st[j][0] = cost * (t1 - 0.5f) - sint * (t2 - 0.5f) + 0.5f;
-				pic_st[j][1] = cost * (t2 - 0.5f) + sint * (t1 - 0.5f) + 0.5f;
-			}
-		}
-
-		R_DrawStretchEnd( &pic_mesh, NULL, MF_TRIFAN | MF_NOCULL );
-
-		//------------------RIGHT----------------------
-		R_DrawStretchBegin( 4, 6, shader, 0, 0 );
-
-		
-		// lower-left
-		Vector2Set( pic_xyz[0], ((x / 2) * hud_width) + halfwidth + (halfwidth * (1-hud_width)) - hud_x, (y * hud_height) + ((1-hud_height)*halfheight) + hud_y );
-		Vector2Set( pic_st[0], s1, t1 );
-		Vector4Set( pic_colors[0], R_FloatToByte( color[0] ), R_FloatToByte( color[1] ),
-			R_FloatToByte( color[2] ), R_FloatToByte( color[3] ) );
-		bcolor = *(int *)pic_colors[0];
-
-		// lower-right
-		Vector2Set( pic_xyz[1], (((x+w) / 2) * hud_width) + halfwidth + (halfwidth * (1-hud_width)) - hud_x, (y * hud_height) + ((1-hud_height)*halfheight) + hud_y );
-		Vector2Set( pic_st[1], s2, t1 );
-		*(int *)pic_colors[1] = bcolor;
-
-		// upper-right
-		Vector2Set( pic_xyz[2], (((x+w) / 2) * hud_width) + halfwidth + (halfwidth * (1-hud_width)) - hud_x, ((y+h) * hud_height) + ((1-hud_height)*halfheight) + hud_y );
-		Vector2Set( pic_st[2], s2, t2 );
-		*(int *)pic_colors[2] = bcolor;
-
-		// upper-left
-		Vector2Set( pic_xyz[3], ((x / 2) * hud_width) + halfwidth + (halfwidth * (1-hud_width)) - hud_x, ((y+h) * hud_height) + ((1-hud_height)*halfheight) + hud_y );
-		Vector2Set( pic_st[3], s1, t2 );
-		*(int *)pic_colors[3] = bcolor;
-
-		// rotated image
-		angle = anglemod( angle );
-		if( angle ) {
-			int j;
-			float sint, cost;
-
-			angle = angle / 360.0f;
-			sint = R_FastSin( angle );
-			cost = R_FastSin( angle + 0.25 );
-
-			for( j = 0; j < 4; j++ )
-			{
-				t1 = pic_st[j][0];
-				t2 = pic_st[j][1];
-				pic_st[j][0] = cost * (t1 - 0.5f) - sint * (t2 - 0.5f) + 0.5f;
-				pic_st[j][1] = cost * (t2 - 0.5f) + sint * (t1 - 0.5f) + 0.5f;
-			}
-		}
-*/
 /*
 * R_DrawStretchPic
 */
@@ -1902,14 +1851,13 @@ static void R_SetupModelviewMatrix( const refdef_t *rd, mat4x4_t m )
 			OVR_Peek(&hmd_pitchyawroll[YAW], &hmd_pitchyawroll[PITCH], &hmd_pitchyawroll[ROLL]);
 			if (vr_driftcorrection->value > 0)
 			{
-				//yaw_drift_correction_angle = -hmd_pitchyawroll[YAW] * 0.1;// * vr_driftcorrection->value;
-				if (hmd_pitchyawroll[YAW] + yaw_drift_correction_angle > 0)
+				if (hmd_pitchyawroll[YAW] + yaw_drift_correction_angle > vr_yawbias->value)
 				{
-					yaw_drift_correction_angle -= vr_driftcorrection->value / 100.0;
+					yaw_drift_correction_angle -= vr_driftcorrection->value / 1000.0;
 				}
-				else if (hmd_pitchyawroll[YAW] + yaw_drift_correction_angle < 0)
+				else if (hmd_pitchyawroll[YAW] + yaw_drift_correction_angle < vr_yawbias->value)
 				{
-					yaw_drift_correction_angle += vr_driftcorrection->value / 100.0;
+					yaw_drift_correction_angle += vr_driftcorrection->value / 1000.0;
 				}
 			}
 			hmd_pitchyawroll[YAW] += yaw_drift_correction_angle;
@@ -1921,6 +1869,12 @@ static void R_SetupModelviewMatrix( const refdef_t *rd, mat4x4_t m )
 			VectorCopy( hmd_axis[0], axis[0] );
 			VectorCopy( hmd_axis[1], axis[1] );
 			VectorCopy( hmd_axis[2], axis[2] );
+		}
+		else
+		{
+			VectorCopy( rd->viewaxis[0], axis[0] );
+			VectorCopy( rd->viewaxis[1], axis[1] );
+			VectorCopy( rd->viewaxis[2], axis[2] );
 		}
 	}
 	else
@@ -2969,7 +2923,7 @@ void R_RenderScene( const refdef_t *fd )
 		return;
 
 	//McSchwartz
-	if (vr_enable->integer)
+	if (vr_enable->integer && vr_headtracking->integer)
 	{
 		if (!OVRDetected)
 		{
