@@ -2854,10 +2854,10 @@ void R_RenderScene( const refdef_t *fd )
 				}
 				if (yaw_drift_correction_angle > 180) yaw_drift_correction_angle -= 360;
 				if (yaw_drift_correction_angle < -180) yaw_drift_correction_angle += 360;
-				hmd_pitchyawroll[YAW] += yaw_drift_correction_angle;
-				if (hmd_pitchyawroll[YAW] > 180) hmd_pitchyawroll[YAW] -= 360;
-				if (hmd_pitchyawroll[YAW] < -180) hmd_pitchyawroll[YAW] += 360;
 			}
+			hmd_pitchyawroll[YAW] += yaw_drift_correction_angle;
+			if (hmd_pitchyawroll[YAW] > 180) hmd_pitchyawroll[YAW] -= 360;
+			if (hmd_pitchyawroll[YAW] < -180) hmd_pitchyawroll[YAW] += 360;
 		}
 	}
 	vr_renderViewport = 0;
