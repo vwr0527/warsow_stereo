@@ -28,7 +28,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 struct OVR_HMDInfo HMD;
 int OVRDetected = 0;
 float yaw_drift_correction_angle = 0;
-
+vec3_t hmd_pitchyawroll;
 
 r_frontend_t r_front;
 
@@ -128,22 +128,24 @@ float r_farclip_min, r_farclip_bias = 64.0f;
 *	vice versa for the right viewport.
 * - Added scaling factors and translation control
 *	for the 2D HUD elements, controlled with the
-*	cvars vr_hud_*, in the function R_Set2DMode
-* - Added functions to communicate with the CG_
-*	portion of the program. The functions are:
-*	R_Setup2nd2DView, R_GetVREnabled, R_GetCrosshairDist,
-*	and R_GetVRRenderViewportNum
-*	I couldn't get the 2D portion of the screen (hud, etc)
-*	to render twice. It would only be drawn once. So
-*	I must delegate this task to the CG_ portion of the
-*	program. Namely, CG_RenderView, in the file cg_view.c.
-*	In that function you will find a small change to
-*	render the 2D portion twice if VR_Enable is enabled.
-* - Added support for rendering the crosshair at a
-*	different apparent depth than the rest of the HUD,
-*	by shifting crosshair position between the two
-*	viewports being rendered. This was changed in the
-*	function CG_DrawCrosshair in the file cg_screen.c.
+*	cvars vr_hud_*
+* - Made 2d hud part draw twice by modifying
+*   R_RenderPicMBuffer. final[12] is the magic value
+*	in the matrix that moves the 2 projections left
+*	and right correctly.
+* - RenderPicMBuffer uses a modified backend function,
+*   R_RenderMeshBufferWithClearOption. It's the same as
+*   R_RenderMeshBuffer, but the final step, clearing
+*	the old meshbuffer is skipped, allowing it to be
+*   drawn again.
+* - Fixed an old bug with adding together the Oculus'
+*	pitch-yaw-roll with the regular view's pitchyawroll.
+*	Now uses matrix rotations to get the right behavior.
+* - Changed the frustum culling in R_SetupFrustum to
+*	use the correct way of adding two pitchyawrolls.
+* - Fixed an old bug where the yaw drift correction
+*	would correct the wrong way if the original angle
+*	approached 180 or -180 degrees.
 */
 int vr_renderViewport = 0;
 
@@ -1037,19 +1039,21 @@ static void R_ResetPicMBuffer( void )
 /*
 * R_RenderPicMBuffer
 */
+//McSchwartz
+
+static void R_SetupProjectionMatrix( const refdef_t *rd, mat4x4_t m );
 static void R_RenderPicMBuffer( void )
 {
 	mat4x4_t translation;
 	qboolean translated;
 
 	//McSchwartz
-	vec3_t hmd_pitchyawroll;
-	//vec3_t hmd_axis[3];
 	mat4x4_t scale;
 	mat4x4_t rotate;
 	mat4x4_t final;
 	mat4x4_t temp;
 	mat4x4_t temp2;
+	mat4x4_t temp3;
 
 	if( !pic_mbuffer_shader ) {
 		return;
@@ -1074,18 +1078,6 @@ static void R_RenderPicMBuffer( void )
 	{
 		if (OVRDetected && vr_headtracking->integer)
 		{
-			OVR_Peek(&hmd_pitchyawroll[YAW], &hmd_pitchyawroll[PITCH], &hmd_pitchyawroll[ROLL]);
-			hmd_pitchyawroll[YAW] += yaw_drift_correction_angle;
-			hmd_pitchyawroll[0] = -RAD2DEG(hmd_pitchyawroll[0]);
-			hmd_pitchyawroll[1] = RAD2DEG(hmd_pitchyawroll[1]);
-			hmd_pitchyawroll[2] = -RAD2DEG(hmd_pitchyawroll[2]);
-			//AnglesToAxis(hmd_pitchyawroll, hmd_axis);
-
-			/*qglViewport(vr_hud_x->integer,
-				(glState.height/2) + vr_hud_y->integer - (((glState.height) * vr_hud_height->value)/2),
-				(glState.width/2) * vr_hud_width->value,
-				(glState.height) * vr_hud_height->value);
-			*/
 			qglViewport(0,0,640,800);
 			qglScissor(0,0,640,800);
 
@@ -1094,52 +1086,59 @@ static void R_RenderPicMBuffer( void )
 			Matrix4_Identity( scale );
 			Matrix4_Identity( final );
 			Matrix4_Identity( temp );
-
-			Matrix4_Translate2D( translation, pic_x_offset - 640, pic_y_offset - 400);
-			Matrix4_Rotate( rotate, -hmd_pitchyawroll[ROLL], 0,0, 1 );
-			Matrix4_Multiply( rotate, translation, temp );
-			Matrix4_Scale( scale, vr_hud_width->value, vr_hud_height->value, 1 );
-			Matrix4_Multiply( scale, temp, temp2 );
+			Matrix4_Identity( temp2 );
+			Matrix4_Identity( temp3 );
+			Matrix4_Translate( translation, pic_x_offset - 640, pic_y_offset - 400, -640);
+			Matrix4_Scale( scale,vr_hud_width->value, vr_hud_height->value*2, 1);
+			Matrix4_Multiply ( scale, translation, temp3);
+			Matrix4_Identity ( scale );
+			Matrix4_Rotate( rotate, hmd_pitchyawroll[PITCH], 1,0, 0 );
+			Matrix4_Rotate( temp, -hmd_pitchyawroll[YAW], 0,1, 0 );
+			Matrix4_Multiply( rotate, temp, temp2 );
+			Matrix4_Identity( rotate );
+			Matrix4_Identity( temp );
+			Matrix4_Rotate( rotate, hmd_pitchyawroll[ROLL], 0,0, 1 );
+			Matrix4_Multiply( rotate, temp2, temp );
+			Matrix4_Identity( temp2 );
+			Matrix4_Multiply( temp, temp3, temp2 );
+			Matrix4_Identity( temp );
 			Matrix4_Identity( translation );
-			Matrix4_Translate2D( translation, vr_hud_x->value + 640 + hmd_pitchyawroll[YAW] * vr_hud_track_x->value,  vr_hud_y->value + 400 - hmd_pitchyawroll[PITCH] * vr_hud_track_y->value / 2);
-			Matrix4_Multiply( translation, temp2, final );
+			Matrix4_Translate ( translation, 0, 0, 0);
+			Matrix4_Identity( temp3 );
+			Matrix4_Multiply( temp2, translation, temp3 );
+			vr_renderViewport = 0;
+			R_SetupProjectionMatrix( &ri.refdef, temp );
+			Matrix4_Multiply( temp, temp3, final );
+			Matrix4_Identity( translation );
+			Matrix4_Identity( temp );
+			Matrix4_Scale( scale, 640, 400, 1 );
+			Matrix4_Multiply( scale, final, temp );
+			Matrix4_Identity( final );
+			Matrix4_Translate( translation, 640,  400, 0);
+			Matrix4_Multiply( translation, temp, final );
 
 			qglMatrixMode ( GL_MODELVIEW );
+			final[12] += vr_hud_depth->value * 200;
 			qglLoadMatrixf( final );
 
 			R_RenderMeshBufferWithClearOption( qfalse, &pic_mbuffer, NULL );
 
-			/*qglViewport((glState.width/2) - vr_hud_x->integer + ((glState.width/2) - ((glState.width/2) * vr_hud_width->value)),
-				(glState.height/2) + vr_hud_y->integer - ((glState.height) * vr_hud_height->value)/2,
-				(glState.width/2) * vr_hud_width->value,
-				(glState.height) * vr_hud_height->value);
-			*/
-			/*
-			Matrix4_Identity( translation );
-			Matrix4_Translate2D( translation, pic_x_offset + (hmd_pitchyawroll[YAW] * vr_hud_track_x->value), pic_y_offset - (hmd_pitchyawroll[PITCH] * vr_hud_track_y->value));
-			qglMatrixMode ( GL_MODELVIEW );
-			qglLoadMatrixf( translation );
-			*/
-			
 			qglViewport(640,0,640,800);
 			qglScissor(640,0,640,800);
-
-			Matrix4_Identity( translation );
-			Matrix4_Identity( rotate );
-			Matrix4_Identity( scale );
-			Matrix4_Identity( final );
+			
 			Matrix4_Identity( temp );
-
-			Matrix4_Translate2D( translation, pic_x_offset - 640, pic_y_offset - 400);
-			Matrix4_Rotate( rotate, -hmd_pitchyawroll[ROLL], 0,0, 1 );
-			Matrix4_Multiply( rotate, translation, temp );
-			Matrix4_Scale( scale, vr_hud_width->value, vr_hud_height->value, 1 );
-			Matrix4_Multiply( scale, temp, temp2 );
+			vr_renderViewport = 1;
+			R_SetupProjectionMatrix( &ri.refdef, temp );
+			Matrix4_Multiply( temp, temp3, final );
 			Matrix4_Identity( translation );
-			Matrix4_Translate2D( translation, -vr_hud_x->value + 640 + hmd_pitchyawroll[YAW] * vr_hud_track_x->value,  vr_hud_y->value + 400 - hmd_pitchyawroll[PITCH] * vr_hud_track_y->value / 2);
-			Matrix4_Multiply( translation, temp2, final );
+			Matrix4_Identity( temp );
+			Matrix4_Multiply( scale, final, temp );
+			Matrix4_Identity( final );
+			Matrix4_Translate( translation, 640,  400, 0);
+			Matrix4_Multiply( translation, temp, final );
 
 			qglMatrixMode ( GL_MODELVIEW );
+			final[12] -= vr_hud_depth->value * 200;
 			qglLoadMatrixf( final );
 
 			R_RenderMeshBufferWithClearOption( qtrue, &pic_mbuffer, NULL );
@@ -1260,21 +1259,9 @@ void R_DrawStretchEnd( const mesh_t *mesh, mesh_vbo_t *vbo, int features )
 /*
 * R_DrawRotatedStretchPic
 */
-/*
-McSchwartz
-do something here
-*/
 void R_DrawRotatedStretchPic( int x, int y, int w, int h, float s1, float t1, float s2, float t2, float angle, const vec4_t color, const shader_t *shader )
 {
 	int bcolor;
-
-	//McSchwartz variables
-	float width = (float)ri.viewport[2];
-	float halfheight = (float)ri.viewport[3]/2.0;
-	float hud_width = vr_hud_width->value;
-	float hud_height = vr_hud_height->value;
-	float hud_x = vr_hud_x->value;
-	float hud_y = vr_hud_y->value;
 
 	if( !shader ) {
 		return;
@@ -1288,149 +1275,50 @@ void R_DrawRotatedStretchPic( int x, int y, int w, int h, float s1, float t1, fl
 		return;
 	}
 
-	//McSchwartz
-	if (qfalse)//vr_enable->integer)
-	{
-		//copy and paste... sorry.
-		//draw left, and then draw right!
-		//--------------------LEFT---------------------------
-		R_DrawStretchBegin( 4, 6, shader, 0, 0 );
+	R_DrawStretchBegin( 4, 6, shader, 0, 0 );
 
-		// lower-left
-		Vector2Set( pic_xyz[0], ((x / 2) * hud_width) + hud_x, (y * hud_height) + ((1-hud_height)*halfheight) + hud_y );
-		Vector2Set( pic_st[0], s1, t1 );
-		Vector4Set( pic_colors[0], R_FloatToByte( color[0] ), R_FloatToByte( color[1] ),
-			R_FloatToByte( color[2] ), R_FloatToByte( color[3] ) );
-		bcolor = *(int *)pic_colors[0];
+	// lower-left
+	Vector2Set( pic_xyz[0], x, y );
+	Vector2Set( pic_st[0], s1, t1 );
+	Vector4Set( pic_colors[0], R_FloatToByte( color[0] ), R_FloatToByte( color[1] ),
+		R_FloatToByte( color[2] ), R_FloatToByte( color[3] ) );
+	bcolor = *(int *)pic_colors[0];
 
-		// lower-right
-		Vector2Set( pic_xyz[1], (((x+w) / 2) * hud_width) + hud_x, (y * hud_height) + ((1-hud_height)*halfheight) + hud_y );
-		Vector2Set( pic_st[1], s2, t1 );
-		*(int *)pic_colors[1] = bcolor;
+	// lower-right
+	Vector2Set( pic_xyz[1], x+w, y );
+	Vector2Set( pic_st[1], s2, t1 );
+	*(int *)pic_colors[1] = bcolor;
 
-		// upper-right
-		Vector2Set( pic_xyz[2], (((x+w) / 2) * hud_width) + hud_x, ((y+h) * hud_height) + ((1-hud_height)*halfheight) + hud_y );
-		Vector2Set( pic_st[2], s2, t2 );
-		*(int *)pic_colors[2] = bcolor;
+	// upper-right
+	Vector2Set( pic_xyz[2], x+w, y+h );
+	Vector2Set( pic_st[2], s2, t2 );
+	*(int *)pic_colors[2] = bcolor;
 
-		// upper-left
-		Vector2Set( pic_xyz[3], ((x / 2) * hud_width) + hud_x, ((y+h) * hud_height) + ((1-hud_height)*halfheight) + hud_y );
-		Vector2Set( pic_st[3], s1, t2 );
-		*(int *)pic_colors[3] = bcolor;
+	// upper-left
+	Vector2Set( pic_xyz[3], x, y+h );
+	Vector2Set( pic_st[3], s1, t2 );
+	*(int *)pic_colors[3] = bcolor;
 
-		// rotated image
-		angle = anglemod( angle );
-		if( angle ) {
-			int j;
-			float sint, cost;
+	// rotated image
+	angle = anglemod( angle );
+	if( angle ) {
+		int j;
+		float sint, cost;
 
-			angle = angle / 360.0f;
-			sint = R_FastSin( angle );
-			cost = R_FastSin( angle + 0.25 );
+		angle = angle / 360.0f;
+		sint = R_FastSin( angle );
+		cost = R_FastSin( angle + 0.25 );
 
-			for( j = 0; j < 4; j++ )
-			{
-				t1 = pic_st[j][0];
-				t2 = pic_st[j][1];
-				pic_st[j][0] = cost * (t1 - 0.5f) - sint * (t2 - 0.5f) + 0.5f;
-				pic_st[j][1] = cost * (t2 - 0.5f) + sint * (t1 - 0.5f) + 0.5f;
-			}
+		for( j = 0; j < 4; j++ )
+		{
+			t1 = pic_st[j][0];
+			t2 = pic_st[j][1];
+			pic_st[j][0] = cost * (t1 - 0.5f) - sint * (t2 - 0.5f) + 0.5f;
+			pic_st[j][1] = cost * (t2 - 0.5f) + sint * (t1 - 0.5f) + 0.5f;
 		}
-
-		R_DrawStretchEnd( &pic_mesh, NULL, MF_TRIFAN | MF_NOCULL );
-
-		//------------------RIGHT----------------------
-		R_DrawStretchBegin( 4, 6, shader, 0, 0 );
-		
-		// lower-left
-		Vector2Set( pic_xyz[0], ((x / 2) * hud_width) + width + (width * (1-hud_width)) - hud_x, (y * hud_height) + ((1-hud_height)*halfheight) + hud_y );
-		Vector2Set( pic_st[0], s1, t1 );
-		Vector4Set( pic_colors[0], R_FloatToByte( color[0] ), R_FloatToByte( color[1] ),
-			R_FloatToByte( color[2] ), R_FloatToByte( color[3] ) );
-		bcolor = *(int *)pic_colors[0];
-
-		// lower-right
-		Vector2Set( pic_xyz[1], (((x+w) / 2) * hud_width) + width + (width * (1-hud_width)) - hud_x, (y * hud_height) + ((1-hud_height)*halfheight) + hud_y );
-		Vector2Set( pic_st[1], s2, t1 );
-		*(int *)pic_colors[1] = bcolor;
-
-		// upper-right
-		Vector2Set( pic_xyz[2], (((x+w) / 2) * hud_width) + width + (width * (1-hud_width)) - hud_x, ((y+h) * hud_height) + ((1-hud_height)*halfheight) + hud_y );
-		Vector2Set( pic_st[2], s2, t2 );
-		*(int *)pic_colors[2] = bcolor;
-
-		// upper-left
-		Vector2Set( pic_xyz[3], ((x / 2) * hud_width) + width + (width * (1-hud_width)) - hud_x, ((y+h) * hud_height) + ((1-hud_height)*halfheight) + hud_y );
-		Vector2Set( pic_st[3], s1, t2 );
-		*(int *)pic_colors[3] = bcolor;
-
-		// rotated image
-		angle = anglemod( angle );
-		if( angle ) {
-			int j;
-			float sint, cost;
-
-			angle = angle / 360.0f;
-			sint = R_FastSin( angle );
-			cost = R_FastSin( angle + 0.25 );
-
-			for( j = 0; j < 4; j++ )
-			{
-				t1 = pic_st[j][0];
-				t2 = pic_st[j][1];
-				pic_st[j][0] = cost * (t1 - 0.5f) - sint * (t2 - 0.5f) + 0.5f;
-				pic_st[j][1] = cost * (t2 - 0.5f) + sint * (t1 - 0.5f) + 0.5f;
-			}
-		}
-		R_DrawStretchEnd( &pic_mesh, NULL, MF_TRIFAN | MF_NOCULL );
 	}
-	else
-	{
-		R_DrawStretchBegin( 4, 6, shader, 0, 0 );
 
-		// lower-left
-		Vector2Set( pic_xyz[0], x, y );
-		Vector2Set( pic_st[0], s1, t1 );
-		Vector4Set( pic_colors[0], R_FloatToByte( color[0] ), R_FloatToByte( color[1] ),
-			R_FloatToByte( color[2] ), R_FloatToByte( color[3] ) );
-		bcolor = *(int *)pic_colors[0];
-
-		// lower-right
-		Vector2Set( pic_xyz[1], x+w, y );
-		Vector2Set( pic_st[1], s2, t1 );
-		*(int *)pic_colors[1] = bcolor;
-
-		// upper-right
-		Vector2Set( pic_xyz[2], x+w, y+h );
-		Vector2Set( pic_st[2], s2, t2 );
-		*(int *)pic_colors[2] = bcolor;
-
-		// upper-left
-		Vector2Set( pic_xyz[3], x, y+h );
-		Vector2Set( pic_st[3], s1, t2 );
-		*(int *)pic_colors[3] = bcolor;
-
-		// rotated image
-		angle = anglemod( angle );
-		if( angle ) {
-			int j;
-			float sint, cost;
-
-			angle = angle / 360.0f;
-			sint = R_FastSin( angle );
-			cost = R_FastSin( angle + 0.25 );
-
-			for( j = 0; j < 4; j++ )
-			{
-				t1 = pic_st[j][0];
-				t2 = pic_st[j][1];
-				pic_st[j][0] = cost * (t1 - 0.5f) - sint * (t2 - 0.5f) + 0.5f;
-				pic_st[j][1] = cost * (t2 - 0.5f) + sint * (t1 - 0.5f) + 0.5f;
-			}
-		}
-
-		R_DrawStretchEnd( &pic_mesh, NULL, MF_TRIFAN | MF_NOCULL );
-	}
+	R_DrawStretchEnd( &pic_mesh, NULL, MF_TRIFAN | MF_NOCULL );
 }
 
 /*
@@ -1628,9 +1516,13 @@ static void R_SetupFrustum( void )
 	vec3_t right;
 	vec3_t farPoint;
 	//McSchwartz
-	vec3_t hmd_pitchyawroll;
-	vec3_t orig_pitchyawroll;
-	vec3_t hmd_axis[3];
+	vec3_t combined_forward;
+	vec3_t combined_forward_yaw;
+	vec3_t combined_up;
+	vec3_t combined_up_yaw;
+	vec3_t combined_up_yaw_roll;
+	vec3_t combined_right_yaw;
+	vec3_t combined_right_yaw_roll;
 
 	// 0 - left
 	// 1 - right
@@ -1644,27 +1536,32 @@ static void R_SetupFrustum( void )
 		//Also rotate the frustrum by the headtracking amount
 		if (vr_headtracking->integer && OVRDetected)
 		{
-			OVR_Peek(&hmd_pitchyawroll[YAW], &hmd_pitchyawroll[PITCH], &hmd_pitchyawroll[ROLL]);
-			hmd_pitchyawroll[YAW] += yaw_drift_correction_angle;
-			VecToAngles(ri.viewAxis[0], orig_pitchyawroll);
-			hmd_pitchyawroll[0] = orig_pitchyawroll[0]-RAD2DEG(hmd_pitchyawroll[0]);
-			hmd_pitchyawroll[1] = orig_pitchyawroll[1]+RAD2DEG(hmd_pitchyawroll[1]);
-			hmd_pitchyawroll[2] = orig_pitchyawroll[2]-RAD2DEG(hmd_pitchyawroll[2]);
-			AnglesToAxis(hmd_pitchyawroll, hmd_axis);
-			
-	
 			VectorNegate( ri.viewAxis[1], right );
-			// rotate ri.vpn right by FOV_X/2 degrees
-			RotatePointAroundVector( ri.frustum[0].normal, hmd_axis[2], hmd_axis[0], -( 90-ri.refdef.fov_x / 2 ) );
-			// rotate ri.vpn left by FOV_X/2 degrees
-			RotatePointAroundVector( ri.frustum[1].normal, hmd_axis[2], hmd_axis[0], 90-ri.refdef.fov_x / 2 );
+			
+			//McSchwartz
+			//Get the 3 axis of the direction that the oculus + mouse is facing
+			RotatePointAroundVector( combined_forward, right, ri.viewAxis[0], hmd_pitchyawroll[PITCH]);
+			RotatePointAroundVector( combined_forward_yaw,  ri.viewAxis[2], combined_forward, hmd_pitchyawroll[YAW]);
 
-			// rotate ri.vpn up by FOV_X/2 degrees 
-			RotatePointAroundVector( ri.frustum[2].normal, right, hmd_axis[0], 90-ri.refdef.fov_y );
+			RotatePointAroundVector( combined_up,			right,				 ri.viewAxis[2],	hmd_pitchyawroll[PITCH]);
+			RotatePointAroundVector( combined_up_yaw,		ri.viewAxis[2],		 combined_up,		hmd_pitchyawroll[YAW]);
+			RotatePointAroundVector( combined_up_yaw_roll,  combined_forward_yaw, combined_up_yaw, -hmd_pitchyawroll[ROLL]);
+			
+			RotatePointAroundVector( combined_right_yaw,		  ri.viewAxis[2],			right,		 hmd_pitchyawroll[YAW]);
+			RotatePointAroundVector( combined_right_yaw_roll,  combined_forward_yaw, combined_right_yaw, -hmd_pitchyawroll[ROLL]);
+
+			// rotate ri.vpn right by FOV_X/2 degrees
+
+			RotatePointAroundVector( ri.frustum[0].normal, combined_up_yaw_roll, combined_forward_yaw, -( 90-ri.refdef.fov_x / 2 ) );
+			// rotate ri.vpn left by FOV_X/2 degrees
+			RotatePointAroundVector( ri.frustum[1].normal, combined_up_yaw_roll, combined_forward_yaw, 90-ri.refdef.fov_x / 2 );
+
+			// rotate ri.vpn up by FOV_X/2 degrees
+			RotatePointAroundVector( ri.frustum[2].normal, combined_right_yaw_roll, combined_forward_yaw, 90-ri.refdef.fov_y );
 			// rotate ri.vpn down by FOV_X/2 degrees
-			RotatePointAroundVector( ri.frustum[3].normal, right, hmd_axis[0], -( 90 - ri.refdef.fov_y ) );
+			RotatePointAroundVector( ri.frustum[3].normal, combined_right_yaw_roll, combined_forward_yaw, -( 90 - ri.refdef.fov_y ) );
 			// negate forward vector
-			VectorNegate( ri.viewAxis[0], ri.frustum[4].normal );
+			VectorNegate( combined_forward_yaw, ri.frustum[4].normal );
 		}
 		else
 		{
@@ -1787,13 +1684,13 @@ static void R_SetupProjectionMatrix( const refdef_t *rd, mat4x4_t m )
 	{
 		if (vr_renderViewport == 0)
 		{
-			xMin -= vr_eyedist->value * tan( rd->fov_x *M_PI / 360.0 );
-			xMax -= vr_eyedist->value * tan( rd->fov_x *M_PI / 360.0 );
+			xMin -= vr_eyedist->value * tan( rd->fov_x * M_PI / 360.0 );
+			xMax -= vr_eyedist->value * tan( rd->fov_x * M_PI / 360.0 );
 		}
 		else
 		{
-			xMin += vr_eyedist->value * tan( rd->fov_x *M_PI / 360.0 );
-			xMax += vr_eyedist->value * tan( rd->fov_x *M_PI / 360.0 );
+			xMin += vr_eyedist->value * tan( rd->fov_x * M_PI / 360.0 );
+			xMax += vr_eyedist->value * tan( rd->fov_x * M_PI / 360.0 );
 		}
 	}
 	else
@@ -1828,9 +1725,12 @@ static void R_SetupModelviewMatrix( const refdef_t *rd, mat4x4_t m )
 	vec3_t axis[3], origin;
 	mat4x4_t flip, view;
 	//McSchwartz
-	vec3_t hmd_pitchyawroll;
 	vec3_t orig_pitchyawroll;
-	vec3_t hmd_axis[3];
+	mat4x4_t rotate;
+	mat4x4_t orig_rotate;
+	mat4x4_t translate;
+	mat4x4_t temp;
+	mat4x4_t temp2;
 
 #if 0
 	Matrix4_Identity( flip );
@@ -1844,67 +1744,70 @@ static void R_SetupModelviewMatrix( const refdef_t *rd, mat4x4_t m )
 #endif
 
 	//McSchwartz
-	if (vr_enable->integer && vr_headtracking->integer)
+	if (vr_enable->integer && vr_headtracking->integer && OVRDetected)
 	{
-		if (OVRDetected)
-		{
-			OVR_Peek(&hmd_pitchyawroll[YAW], &hmd_pitchyawroll[PITCH], &hmd_pitchyawroll[ROLL]);
-			if (vr_driftcorrection->value > 0)
-			{
-				if (hmd_pitchyawroll[YAW] + yaw_drift_correction_angle > vr_yawbias->value)
-				{
-					yaw_drift_correction_angle -= vr_driftcorrection->value / 1000.0;
-				}
-				else if (hmd_pitchyawroll[YAW] + yaw_drift_correction_angle < vr_yawbias->value)
-				{
-					yaw_drift_correction_angle += vr_driftcorrection->value / 1000.0;
-				}
-			}
-			hmd_pitchyawroll[YAW] += yaw_drift_correction_angle;
-			VecToAngles(rd->viewaxis[0], orig_pitchyawroll);
-			hmd_pitchyawroll[0] = orig_pitchyawroll[0]-RAD2DEG(hmd_pitchyawroll[0]);
-			hmd_pitchyawroll[1] = orig_pitchyawroll[1]+RAD2DEG(hmd_pitchyawroll[1]);
-			hmd_pitchyawroll[2] = orig_pitchyawroll[2]-RAD2DEG(hmd_pitchyawroll[2]);
-			AnglesToAxis(hmd_pitchyawroll, hmd_axis);
-			VectorCopy( hmd_axis[0], axis[0] );
-			VectorCopy( hmd_axis[1], axis[1] );
-			VectorCopy( hmd_axis[2], axis[2] );
-		}
-		else
-		{
-			VectorCopy( rd->viewaxis[0], axis[0] );
-			VectorCopy( rd->viewaxis[1], axis[1] );
-			VectorCopy( rd->viewaxis[2], axis[2] );
-		}
+		VecToAngles(rd->viewaxis[0], orig_pitchyawroll);
+
+		Matrix4_Identity(rotate);
+		Matrix4_Identity(temp);
+		Matrix4_Identity(temp2);
+		Matrix4_Rotate( rotate, hmd_pitchyawroll[PITCH], 0,1, 0 );
+		Matrix4_Rotate( temp, -hmd_pitchyawroll[YAW], 0,0, 1 );
+
+		Matrix4_Multiply( rotate, temp, temp2 );
+		Matrix4_Identity( temp );
+		Matrix4_Identity( rotate );
+		Matrix4_Rotate( temp, hmd_pitchyawroll[ROLL], 1,0, 0 );
+		Matrix4_Multiply( temp, temp2, rotate );
+		
+		Matrix4_Identity(orig_rotate);
+		Matrix4_Identity(temp);
+		Matrix4_Identity(temp2);
+		Matrix4_Rotate( orig_rotate, -orig_pitchyawroll[PITCH], 0,1, 0 );
+		Matrix4_Rotate( temp, -orig_pitchyawroll[YAW], 0,0, 1 );
+
+		Matrix4_Multiply( orig_rotate, temp, temp2 );
+		Matrix4_Identity( temp );
+		Matrix4_Identity( orig_rotate );
+		Matrix4_Rotate( temp, -orig_pitchyawroll[ROLL], 1,0, 0 );
+		Matrix4_Multiply( temp, temp2, orig_rotate );
+
+		Matrix4_Identity( temp );
+		Matrix4_Multiply( rotate, orig_rotate, temp );
+		
+		Matrix4_Identity( translate );
+		Matrix4_Translate( translate, -rd->vieworg[0],-rd->vieworg[1],-rd->vieworg[2]);
+
+		Matrix4_Multiply (temp, translate, view);
 	}
 	else
 	{
 		VectorCopy( rd->viewaxis[0], axis[0] );
 		VectorCopy( rd->viewaxis[1], axis[1] );
 		VectorCopy( rd->viewaxis[2], axis[2] );
+
+		VectorCopy( rd->vieworg, origin );
+
+		view[0 ] = axis[0][0];
+		view[4 ] = axis[0][1];
+		view[8 ] = axis[0][2];
+		view[12] = -origin[0] * view[0] + -origin[1] * view[4] + -origin[2] * view[8];
+
+		view[1 ] = axis[1][0];
+		view[5 ] = axis[1][1];
+		view[9 ] = axis[1][2];
+		view[13] = -origin[0] * view[1] + -origin[1] * view[5] + -origin[2] * view[9];
+
+		view[2 ] = axis[2][0];
+		view[6 ] = axis[2][1];
+		view[10] = axis[2][2];
+		view[14] = -origin[0] * view[2] + -origin[1] * view[6] + -origin[2] * view[10];
+
+		view[3] = 0;
+		view[7] = 0;
+		view[11] = 0;
+		view[15] = 1;
 	}
-
-	VectorCopy( rd->vieworg, origin );
-
-	view[0 ] = axis[0][0];
-	view[4 ] = axis[0][1];
-	view[8 ] = axis[0][2];
-	view[12] = -origin[0] * view[0] + -origin[1] * view[4] + -origin[2] * view[8];
-
-	view[1 ] = axis[1][0];
-	view[5 ] = axis[1][1];
-	view[9 ] = axis[1][2];
-	view[13] = -origin[0] * view[1] + -origin[1] * view[5] + -origin[2] * view[9];
-
-	view[2 ] = axis[2][0];
-	view[6 ] = axis[2][1];
-	view[10] = axis[2][2];
-	view[14] = -origin[0] * view[2] + -origin[1] * view[6] + -origin[2] * view[10];
-
-	view[3] = 0;
-	view[7] = 0;
-	view[11] = 0;
-	view[15] = 1;
 
 	//McSchwartz
 	if (vr_enable->integer)
@@ -2916,6 +2819,7 @@ static qboolean R_WarmUp( const refdef_t *fd )
 */
 void R_RenderScene( const refdef_t *fd )
 {
+	float tempangle;
 	// flush any remaining 2D bits
 	R_Set2DMode( qfalse );
 
@@ -2928,6 +2832,32 @@ void R_RenderScene( const refdef_t *fd )
 		if (!OVRDetected)
 		{
 			OVRDetected = OVR_Init();
+		}
+		else
+		{
+			OVR_Peek(&hmd_pitchyawroll[YAW], &hmd_pitchyawroll[PITCH], &hmd_pitchyawroll[ROLL]);
+			hmd_pitchyawroll[PITCH] = RAD2DEG(hmd_pitchyawroll[PITCH]);
+			hmd_pitchyawroll[YAW]   = RAD2DEG(hmd_pitchyawroll[YAW]);
+			hmd_pitchyawroll[ROLL]  = RAD2DEG(hmd_pitchyawroll[ROLL]);
+			if (vr_driftcorrection->value > 0)
+			{
+				tempangle = hmd_pitchyawroll[YAW] + yaw_drift_correction_angle; 
+				if (tempangle > 180) tempangle -= 360;
+				if (tempangle < -180) tempangle += 360;
+				if (tempangle > vr_yawbias->value)
+				{
+					yaw_drift_correction_angle -= vr_driftcorrection->value / 100.0;
+				}
+				else if (tempangle < vr_yawbias->value)
+				{
+					yaw_drift_correction_angle += vr_driftcorrection->value / 100.0;
+				}
+				if (yaw_drift_correction_angle > 180) yaw_drift_correction_angle -= 360;
+				if (yaw_drift_correction_angle < -180) yaw_drift_correction_angle += 360;
+				hmd_pitchyawroll[YAW] += yaw_drift_correction_angle;
+				if (hmd_pitchyawroll[YAW] > 180) hmd_pitchyawroll[YAW] -= 360;
+				if (hmd_pitchyawroll[YAW] < -180) hmd_pitchyawroll[YAW] += 360;
+			}
 		}
 	}
 	vr_renderViewport = 0;

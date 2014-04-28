@@ -138,8 +138,7 @@ cvar_t *vr_hud_x;
 cvar_t *vr_headtracking;
 cvar_t *vr_driftcorrection;
 cvar_t *vr_yawbias;
-cvar_t *vr_hud_track_x;
-cvar_t *vr_hud_track_y;
+cvar_t *vr_hud_depth;
 
 cvar_t *gl_extensions;
 cvar_t *gl_drawbuffer;
@@ -838,10 +837,9 @@ void R_Register( void )
 	vr_hud_y = Cvar_Get( "vr_hud_y", "0", CVAR_ARCHIVE );
 	vr_hud_x = Cvar_Get( "vr_hud_x", "100", CVAR_ARCHIVE );
 	vr_headtracking = Cvar_Get( "vr_headtracking", "0", CVAR_ARCHIVE );
-	vr_driftcorrection = Cvar_Get( "vr_driftcorrection", "0.01", CVAR_ARCHIVE );
-	vr_yawbias = Cvar_Get("vr_yawbias", "0.05", CVAR_ARCHIVE);
-	vr_hud_track_x = Cvar_Get("vr_hud_track_x", "9", CVAR_ARCHIVE);
-	vr_hud_track_y = Cvar_Get("vr_hud_track_y", "8", CVAR_ARCHIVE);
+	vr_driftcorrection = Cvar_Get( "vr_driftcorrection", "0.1", CVAR_ARCHIVE );
+	vr_yawbias = Cvar_Get("vr_yawbias", "0.0", CVAR_ARCHIVE);
+	vr_hud_depth = Cvar_Get("vr_hud_depth", "50", CVAR_ARCHIVE);
 
 	gl_finish = Cvar_Get( "gl_finish", "0", CVAR_ARCHIVE );
 	gl_cull = Cvar_Get( "gl_cull", "1", 0 );
