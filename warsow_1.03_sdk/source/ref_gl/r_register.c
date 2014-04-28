@@ -835,7 +835,7 @@ void R_Register( void )
 	vr_hud_width = Cvar_Get( "vr_hud_width", "1", CVAR_ARCHIVE );
 	vr_hud_height = Cvar_Get( "vr_hud_height", "0.5", CVAR_ARCHIVE );
 	vr_hud_y = Cvar_Get( "vr_hud_y", "0", CVAR_ARCHIVE );
-	vr_hud_x = Cvar_Get( "vr_hud_x", "100", CVAR_ARCHIVE );
+	vr_hud_x = Cvar_Get( "vr_hud_x", "50", CVAR_ARCHIVE );
 	vr_headtracking = Cvar_Get( "vr_headtracking", "0", CVAR_ARCHIVE );
 	vr_driftcorrection = Cvar_Get( "vr_driftcorrection", "0.1", CVAR_ARCHIVE );
 	vr_yawbias = Cvar_Get("vr_yawbias", "0.0", CVAR_ARCHIVE);
